@@ -1,69 +1,117 @@
-# 🎯 Smart Decision Picker
+# Trending Stocks Dashboard
 
-A small, fast web app for the decisions you're tired of making: what to cook, which workout to do, where to go on date night. Hit **Decide for me** and get a suggestion — not purely random, but weighted by what you've loved, skipped, and picked recently.
+A minimalist, black-themed stock market dashboard inspired by trading
+terminals. Shows today's top gainers, losers, and most active stocks with
+live prices, intraday sparklines, and a plain-English **"Why is this
+moving"** explanation generated from recent news headlines.
 
-Glassmorphism UI, zero dependencies, zero build step. Everything runs client-side and persists in `localStorage`.
-
-## Run it
-
-Any static file server works (ES modules need `http://`, not `file://`):
-
-```bash
-npx serve .            # or
-python3 -m http.server 8080
-```
-
-Then open `http://localhost:8080`.
-
-**Deploy:** push to any static host — GitHub Pages, Netlify, Vercel, Cloudflare Pages. No build step, no config.
-
-## How the smart picking works
-
-All logic is in [`js/engine.js`](js/engine.js) as pure functions (unit-tested, no DOM). Each option's weight is:
-
-```
-weight = affinity × recency
-affinity = 1.35^loves × 1.05^fines × 0.55^skips   (clamped, ×1.25 if never tried)
-recency  = 0.12 / 0.35 / 0.65 / 1.0 depending on how many suggestions ago it last came up
-```
-
-- **Loved it** → suggested noticeably more often
-- **Fine** → mild positive (it was accepted)
-- **Skip** → suggested less, and excluded for the rest of the current round
-- **Never suggest again** → weight 0 until un-banned in the Options panel
-- Recently suggested options are heavily deprioritized so it doesn't repeat itself
-- Brand-new options get a small exploration bonus so they get a fair shot
+Built with **Next.js 15** (App Router, TypeScript) and custom SVG charts —
+no charting library, no UI framework.
 
 ## Features
 
-- **Custom categories** with emoji icons; bulk-add options (comma/newline separated)
-- **Feedback loop** after every suggestion: Loved it / Fine / Skip / Never again
-- **History log** per category (or across all), with outcome chips; names are snapshotted so history survives deletes
-- **Odds bars** in the Options panel show each option's current relative chance
-- **Starter templates** (Dinner Ideas, Workout Type, Date Night, Movie Genre) for instant onboarding
-- **Pro tier scaffolding** (demo — no real payments):
-  - Free: 3 categories, no export
-  - Pro: unlimited categories, JSON export, **🎲 Surprise me** across all categories
+- **Market movers** — top gainers, top losers, and most active by volume,
+  auto-refreshing every 60 seconds (with a brief green/red flash when a
+  price ticks)
+- **Why is this moving** — expandable panel under each card that classifies
+  recent headlines (earnings, analyst actions, M&A, regulatory, …) into a
+  one-line explanation of the likely catalyst
+- **Stock detail pages** — interactive price chart with 1D / 1W / 1M / 1Y
+  ranges and crosshair tooltip, key stats (market cap, P/E, 52-week
+  high/low, volume), and the related headlines
+- **Ticker search** with keyboard navigation
+- Fully responsive, terminal-style dark UI
 
-## Architecture
+## Data sources & tradeoffs
 
-```
-index.html          markup shell
-css/styles.css      design system (glass tokens, animations)
-js/engine.js        weighting + weighted pick — pure functions, unit-tested
-js/store.js         persistence behind a swappable adapter (localStorage today)
-js/entitlements.js  free/pro plan rules in one place
-js/app.js           UI: rendering + event delegation
-tests/engine.test.mjs
-```
+| Source | Used for | Key needed |
+|---|---|---|
+| Yahoo Finance (unofficial, via [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2)) | Movers screeners, quotes, charts, search, fallback news | No |
+| [Finnhub](https://finnhub.io) (optional) | Richer company news for the "why it's moving" panel | Free key |
 
-Built to grow without rewrites:
+Why this combination: Yahoo's unofficial API is the only free source with
+a **movers screener** (gainers/losers/actives) plus unlimited-ish quotes
+and history, so the app works with **zero API keys**. The tradeoff is that
+it's unofficial — no SLA, and Yahoo occasionally changes things
+(`yahoo-finance2` is actively maintained and tracks those changes).
+Finnhub's free tier (60 calls/min) has excellent per-ticker news but no
+movers endpoint, so it slots in as the optional news upgrade.
+Alpha Vantage was ruled out (25 requests/day free limit can't survive a
+60-second refresh), and Twelve Data's free tier (8 requests/min) is too
+tight for three screener lists plus sparklines.
 
-- **Accounts/backend later:** `store.js` exposes a `{ read, write, clear }` adapter interface — swap `localStorageAdapter` for an API-backed one and the app code doesn't change.
-- **Real payments later:** all gating goes through `entitlements.js` (`getPlan`, `canAddCategory`, `canExport`, `canSurprise`). Wiring up billing just means setting `settings.plan` from a real source instead of the demo unlock button.
+All market data is fetched **server-side** through Next.js API routes with
+an in-memory TTL cache (movers 55s, quotes 30s, charts 2–10min, news
+10min), so the browser never talks to the providers directly, API keys
+stay on the server, and polling every 60 seconds stays well inside free
+rate limits no matter how many tabs are open.
 
-## Tests
+## Getting started
 
 ```bash
-node --test tests/
+npm install
+npm run dev
 ```
+
+Open <http://localhost:3000>. That's it — no API key required.
+
+### Optional: better news via Finnhub
+
+1. Create a free account at <https://finnhub.io/register>
+2. Copy your API key from the dashboard
+3. Create `.env.local` (see `.env.example`):
+
+```bash
+FINNHUB_API_KEY=your_key_here
+```
+
+Without a key, headlines come from Yahoo Finance; with one, the "why is
+this moving" panel uses Finnhub's per-ticker company news (which includes
+one-line summaries).
+
+### Sample data mode
+
+To run without any network access (offline dev, demos, CI):
+
+```bash
+MOCK_DATA=1 npm run dev
+```
+
+The UI shows a **SAMPLE DATA** badge and serves deterministic generated
+data so you can see every feature without hitting a real API.
+
+## Deploying
+
+The app is Vercel-ready:
+
+1. Push this repo to GitHub
+2. Import it at <https://vercel.com/new>
+3. (Optional) add `FINNHUB_API_KEY` under Project → Settings → Environment
+   Variables
+
+Note: the cache is in-memory per serverless instance, which is fine for a
+personal project — a cold instance just refetches once.
+
+## Project structure
+
+```
+app/
+  page.tsx               # dashboard (movers)
+  stock/[symbol]/        # stock detail page
+  api/                   # server-side data proxy (movers, quote, chart,
+                         #   spark, news, search)
+components/              # Dashboard, StockCard, PriceChart, Sparkline,
+                         #   SearchBar, WhyPanel, …
+lib/
+  yahoo.ts               # Yahoo Finance access (yahoo-finance2)
+  finnhub.ts             # Finnhub company news
+  explain.ts             # headline classifier → plain-English explanation
+  cache.ts               # TTL cache + request dedupe + stale-on-error
+  mock.ts                # deterministic sample data (MOCK_DATA=1)
+```
+
+## Disclaimer
+
+Quotes may be delayed and the "why is this moving" text is a heuristic
+guess from headlines. This is a portfolio project — nothing here is
+investment advice.
