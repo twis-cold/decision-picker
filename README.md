@@ -11,23 +11,59 @@ no charting library, no UI framework.
 ## Features
 
 - **Market movers** — top gainers, top losers, and most active by volume,
-  auto-refreshing every 60 seconds (with a brief green/red flash when a
-  price ticks)
+  auto-refreshing every 60 seconds (30s for Pro), with a brief green/red
+  flash when a price ticks
 - **Why is this moving** — expandable panel under each card that classifies
   recent headlines (earnings, analyst actions, M&A, regulatory, …) into a
   one-line explanation of the likely catalyst
 - **Stock detail pages** — interactive price chart with 1D / 1W / 1M / 1Y
-  ranges and crosshair tooltip, key stats (market cap, P/E, 52-week
-  high/low, volume), and the related headlines
+  ranges and crosshair tooltip, key stats, and the related headlines
+- **Beginner Mode** — a nav toggle (persisted in localStorage) that adds
+  "?" bubbles next to every stat with one-sentence plain-English
+  explanations of P/E, market cap, beta, dividend yield, and the rest
+- **What Would I Have Made** (`/hindsight`) — pick a ticker, a past date,
+  and an amount; see today's value, % return, and a value-over-time chart.
+  Results are shareable: permalink + downloadable PNG card
+- **Explain the Jump** (`/jump`) — pick a ticker and a past date; see how
+  the stock moved that day and why, reconstructed from headlines of the
+  time, with an S&P 500 comparison. When no clear cause exists, it says so
+  honestly instead of inventing one. Free tier: 3 lookups/day
 - **Ticker search** with keyboard navigation
 - Fully responsive, terminal-style dark UI
+
+## Monetization scaffolding
+
+All of it works out of the box in demo mode and upgrades to the real
+service when you add keys:
+
+- **Ad slots** — placeholder components (`components/AdSlot.tsx`) in three
+  standard formats: desktop sidebar rail (300×600), horizontal banner, and
+  native in-feed. Swap the placeholder markup for AdSense units when you
+  have an account (instructions in the component). Never shown to Pro
+  users, and never on the hindsight / jump result pages (kept
+  screenshot-clean on purpose)
+- **Pro tier** (`/pro`, $5/mo) — no ads, unlimited Explain-the-Jump
+  lookups, 30s refresh. Payments via **Stripe Checkout** (test mode):
+  set `STRIPE_SECRET_KEY` + `STRIPE_PRICE_ID`; without them the upgrade
+  button applies a clearly-labeled demo upgrade. A webhook handler
+  (`/api/stripe/webhook`) verifies signatures and marks where a real
+  deployment would persist subscription state
+- **Auth** — deliberately simple email sign-in with HMAC-signed cookie
+  sessions and **no database** (the UI says so). The login route is the
+  single seam to swap for magic links / NextAuth / Clerk in production
+- **Newsletter** — signup forms in the footer and after the hindsight /
+  jump results, wired for **Buttondown** (`BUTTONDOWN_API_KEY`; demo mode
+  without it). The intended content already exists: `GET /api/digest`
+  returns a ready-to-send "Top 3 Unusual Moves Today" markdown digest
+  built from the same movers + explanation pipeline — point a daily cron
+  at it and pipe `text` into Buttondown's send API to automate it
 
 ## Data sources & tradeoffs
 
 | Source | Used for | Key needed |
 |---|---|---|
-| Yahoo Finance (unofficial, via [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2)) | Movers screeners, quotes, charts, search, fallback news | No |
-| [Finnhub](https://finnhub.io) (optional) | Richer company news for the "why it's moving" panel | Free key |
+| Yahoo Finance (unofficial, via [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2)) | Movers screeners, quotes, charts, history, search, fallback news | No |
+| [Finnhub](https://finnhub.io) (optional) | Company news for "why it's moving" + historical headlines for "Explain the Jump" | Free key |
 
 Why this combination: Yahoo's unofficial API is the only free source with
 a **movers screener** (gainers/losers/actives) plus unlimited-ish quotes
@@ -42,8 +78,8 @@ tight for three screener lists plus sparklines.
 
 All market data is fetched **server-side** through Next.js API routes with
 an in-memory TTL cache (movers 55s, quotes 30s, charts 2–10min, news
-10min), so the browser never talks to the providers directly, API keys
-stay on the server, and polling every 60 seconds stays well inside free
+10min, history 10min), so the browser never talks to the providers
+directly, API keys stay on the server, and polling stays well inside free
 rate limits no matter how many tabs are open.
 
 ## Getting started
@@ -55,42 +91,44 @@ npm run dev
 
 Open <http://localhost:3000>. That's it — no API key required.
 
-### Optional: better news via Finnhub
+### Environment variables
 
-1. Create a free account at <https://finnhub.io/register>
-2. Copy your API key from the dashboard
-3. Create `.env.local` (see `.env.example`):
+All optional — see `.env.example` for full notes. Create `.env.local`:
 
-```bash
-FINNHUB_API_KEY=your_key_here
-```
+| Variable | Enables | Without it |
+|---|---|---|
+| `FINNHUB_API_KEY` | Richer news + historical headlines for jump lookups ([free key](https://finnhub.io/register)) | Yahoo news fallback; jump lookups >1wk old show "no headline archive" |
+| `AUTH_SECRET` | Proper cookie signing (`openssl rand -hex 32`) | Insecure dev default |
+| `STRIPE_SECRET_KEY` + `STRIPE_PRICE_ID` | Real Stripe Checkout (test mode fine) | Demo upgrade button |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signature verification | Webhook returns 501 |
+| `BUTTONDOWN_API_KEY` | Real newsletter signups | Demo signup (logged only) |
+| `MOCK_DATA=1` | Deterministic sample data, no network (badged in the UI) | Live data |
 
-Without a key, headlines come from Yahoo Finance; with one, the "why is
-this moving" panel uses Finnhub's per-ticker company news (which includes
-one-line summaries).
+### Setting up Stripe (test mode)
 
-### Sample data mode
+1. Create a [Stripe account](https://dashboard.stripe.com/register), stay
+   in **test mode**
+2. Products → Add product → recurring $5/month → copy the price id
+   (`price_…`) into `STRIPE_PRICE_ID`
+3. Developers → API keys → copy the secret key (`sk_test_…`) into
+   `STRIPE_SECRET_KEY`
+4. Optional: Developers → Webhooks → add endpoint
+   `https://your-domain/api/stripe/webhook`, copy the signing secret into
+   `STRIPE_WEBHOOK_SECRET`
+5. Test card: `4242 4242 4242 4242`, any future expiry/CVC
 
-To run without any network access (offline dev, demos, CI):
-
-```bash
-MOCK_DATA=1 npm run dev
-```
-
-The UI shows a **SAMPLE DATA** badge and serves deterministic generated
-data so you can see every feature without hitting a real API.
+**Production caveat (by design):** this project has no database, so Pro
+status lives in the signed session cookie set after checkout verification.
+Renewal failures and cancellations therefore can't downgrade anyone
+automatically — for a real launch, persist `email → subscription status`
+in the webhook handler (the TODOs mark the exact spots) and check that
+instead of the cookie.
 
 ## Deploying
 
-The app is Vercel-ready:
-
-1. Push this repo to GitHub
-2. Import it at <https://vercel.com/new>
-3. (Optional) add `FINNHUB_API_KEY` under Project → Settings → Environment
-   Variables
-
-Note: the cache is in-memory per serverless instance, which is fine for a
-personal project — a cold instance just refetches once.
+Vercel-ready: import the repo at <https://vercel.com/new>, add whichever
+env vars you use, deploy. The in-memory cache is per serverless instance,
+which is fine for a personal project.
 
 ## Project structure
 
@@ -98,14 +136,19 @@ personal project — a cold instance just refetches once.
 app/
   page.tsx               # dashboard (movers)
   stock/[symbol]/        # stock detail page
-  api/                   # server-side data proxy (movers, quote, chart,
-                         #   spark, news, search)
-components/              # Dashboard, StockCard, PriceChart, Sparkline,
-                         #   SearchBar, WhyPanel, …
+  hindsight/             # "what would I have made" calculator
+  jump/                  # "explain the jump" retroactive lookup
+  pro/  account/         # pricing + sign-in
+  api/                   # server-side data proxy + auth, stripe,
+                         #   newsletter, digest endpoints
+components/              # Dashboard, StockCard, PriceChart, ValueChart,
+                         #   AdSlot, GlossaryTip, NewsletterSignup, …
 lib/
   yahoo.ts               # Yahoo Finance access (yahoo-finance2)
-  finnhub.ts             # Finnhub company news
+  finnhub.ts             # Finnhub company news (current + historical)
   explain.ts             # headline classifier → plain-English explanation
+  glossary.ts            # Beginner Mode definitions
+  auth.ts                # signed-cookie sessions + jump quota
   cache.ts               # TTL cache + request dedupe + stale-on-error
   mock.ts                # deterministic sample data (MOCK_DATA=1)
 ```
@@ -113,5 +156,5 @@ lib/
 ## Disclaimer
 
 Quotes may be delayed and the "why is this moving" text is a heuristic
-guess from headlines. This is a portfolio project — nothing here is
-investment advice.
+guess from headlines. **Not financial advice** — this is a portfolio
+project for education and entertainment.

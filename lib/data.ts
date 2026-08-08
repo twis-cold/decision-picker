@@ -1,21 +1,29 @@
 import { cached } from "./cache";
-import { explainMove } from "./explain";
-import { fetchFinnhubNews, finnhubEnabled } from "./finnhub";
+import { explainJump, explainMove } from "./explain";
+import { fetchFinnhubNews, fetchFinnhubNewsBetween, finnhubEnabled } from "./finnhub";
 import {
   mockChart,
+  mockDailyHistory,
+  mockJumpNews,
   mockMovers,
   mockNews,
   mockQuote,
   mockSearch,
 } from "./mock";
 import type {
+  ChartPoint,
   ChartRange,
   ChartResponse,
+  DigestResponse,
+  HindsightResponse,
+  JumpResponse,
   MoversResponse,
+  NewsItem,
   NewsResponse,
   QuoteDetail,
   SearchResponse,
   SparkResponse,
+  ValuePoint,
 } from "./types";
 import * as yahoo from "./yahoo";
 
@@ -36,6 +44,9 @@ const TTL = {
   chart: 10 * 60 * 1000,
   news: 10 * 60 * 1000,
   search: 60 * 60 * 1000,
+  history: 10 * 60 * 1000,
+  jump: 60 * 60 * 1000,
+  digest: 10 * 60 * 1000,
 };
 
 const useMock = () => process.env.MOCK_DATA === "1";
@@ -137,6 +148,284 @@ export async function getNews(
       provider,
       sampleData: false,
     };
+  });
+}
+
+/** Error whose message is safe (and useful) to show to the end user. */
+export class UserError extends Error {}
+
+const DAY_MS = 24 * 3600 * 1000;
+
+function parseDateParam(dateStr: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new UserError("Enter a date in YYYY-MM-DD format.");
+  }
+  const t = Date.parse(`${dateStr}T00:00:00Z`);
+  if (Number.isNaN(t)) throw new UserError("That date doesn't exist.");
+  if (t < Date.parse("1970-01-02T00:00:00Z")) {
+    throw new UserError("Pick a date after 1970 — price data doesn't go back that far.");
+  }
+  if (t > Date.now() - DAY_MS) {
+    throw new UserError("Pick a date in the past — at least one trading day ago.");
+  }
+  return t;
+}
+
+function utcDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+async function getDailyHistory(
+  symbol: string,
+  fromMs: number,
+  toMs?: number,
+): Promise<ChartPoint[]> {
+  if (useMock()) return mockDailyHistory(symbol, fromMs, toMs);
+  const key = `hist:${symbol}:${utcDay(fromMs)}:${toMs ? utcDay(toMs) : "now"}`;
+  return cached(key, TTL.history, () =>
+    yahoo.fetchDailyHistory(
+      symbol,
+      new Date(fromMs),
+      toMs ? new Date(toMs) : undefined,
+    ),
+  );
+}
+
+export async function getHindsight(
+  symbol: string,
+  dateStr: string,
+  amount: number,
+): Promise<HindsightResponse> {
+  if (!(amount >= 1) || amount > 1e8) {
+    throw new UserError("Enter an amount between $1 and $100,000,000.");
+  }
+  const reqMs = parseDateParam(dateStr);
+
+  // Small buffer before the requested date so we can tell "market closed
+  // that day" apart from "the stock wasn't trading yet".
+  const history = await getDailyHistory(symbol, reqMs - 7 * DAY_MS);
+  if (history.length === 0) {
+    throw new UserError(
+      `No price history found for ${symbol} — it may be delisted or the ticker may be wrong.`,
+    );
+  }
+  const startIdx = history.findIndex((p) => p.t >= reqMs);
+  if (startIdx === -1) {
+    throw new UserError(
+      "That date is too recent — there's no completed trading day after it yet.",
+    );
+  }
+  if (startIdx === 0 && history[0].t > reqMs + 10 * DAY_MS) {
+    throw new UserError(
+      `${symbol} wasn't publicly traded on ${dateStr} — its price data starts ${utcDay(history[0].t)}.`,
+    );
+  }
+
+  const start = history[startIdx];
+  const shares = amount / start.c;
+  let series: ValuePoint[] = history
+    .slice(startIdx)
+    .map((p) => ({ t: p.t, v: shares * p.c }));
+
+  // Freshen the endpoint with the live quote when we can; sample mode keeps
+  // the series self-consistent instead.
+  let name: string | null = null;
+  if (!useMock()) {
+    try {
+      const quote = await getQuote(symbol);
+      name = quote.name;
+      series.push({ t: Date.now(), v: shares * quote.price });
+    } catch {
+      // series already ends at the latest close
+    }
+  } else {
+    name = mockQuote(symbol).name;
+  }
+
+  // Keep the payload light for long histories.
+  if (series.length > 400) {
+    const step = Math.ceil(series.length / 400);
+    const last = series[series.length - 1];
+    series = series.filter((_, i) => i % step === 0);
+    if (series[series.length - 1].t !== last.t) series.push(last);
+  }
+
+  const end = series[series.length - 1];
+  return {
+    symbol,
+    name,
+    requestedDate: dateStr,
+    startDate: new Date(start.t).toISOString(),
+    startPrice: start.c,
+    shares,
+    amountInvested: amount,
+    valueNow: end.v,
+    endDate: new Date(end.t).toISOString(),
+    gain: end.v - amount,
+    returnPercent: ((end.v - amount) / amount) * 100,
+    series,
+    sampleData: useMock(),
+  };
+}
+
+async function getJumpNews(
+  symbol: string,
+  dateStr: string,
+  reqMs: number,
+): Promise<{ items: NewsItem[]; provider: JumpResponse["provider"] }> {
+  if (useMock()) return { items: mockJumpNews(symbol, dateStr), provider: "sample" };
+  // Historical headlines need Finnhub; Yahoo's news search only covers the
+  // last few days, so it's only a valid source for very recent dates.
+  if (finnhubEnabled()) {
+    try {
+      const items = await fetchFinnhubNewsBetween(
+        symbol,
+        new Date(reqMs - 3 * DAY_MS),
+        new Date(reqMs + DAY_MS),
+      );
+      return { items, provider: "finnhub" };
+    } catch {
+      // fall through
+    }
+  }
+  if (Date.now() - reqMs < 6 * DAY_MS) {
+    try {
+      const items = (await yahoo.fetchYahooNews(symbol)).filter(
+        (n) => Math.abs(new Date(n.publishedAt).getTime() - reqMs) < 4 * DAY_MS,
+      );
+      return { items, provider: "yahoo" };
+    } catch {
+      // fall through
+    }
+  }
+  return { items: [], provider: "none" };
+}
+
+export async function getJump(
+  symbol: string,
+  dateStr: string,
+): Promise<Omit<JumpResponse, "remaining">> {
+  const reqMs = parseDateParam(dateStr);
+  if (reqMs < Date.parse("2000-01-01T00:00:00Z")) {
+    throw new UserError(
+      "News archives get patchy before 2000 — try a more recent date.",
+    );
+  }
+
+  return cached(`jump:${symbol}:${dateStr}`, TTL.jump, async () => {
+    const fromMs = reqMs - 45 * DAY_MS;
+    const toMs = Math.min(Date.now(), reqMs + 45 * DAY_MS);
+    const history = await getDailyHistory(symbol, fromMs, toMs);
+    if (history.length === 0) {
+      throw new UserError(
+        `No price history found for ${symbol} around that date — it may be delisted or the ticker may be wrong.`,
+      );
+    }
+
+    let idx = history.findIndex((p) => utcDay(p.t) === dateStr);
+    let dateShifted = false;
+    if (idx === -1) {
+      idx = history.findIndex(
+        (p) => p.t > reqMs && p.t < reqMs + 7 * DAY_MS,
+      );
+      dateShifted = idx > 0;
+    }
+    if (idx <= 0) {
+      throw new UserError(
+        idx === 0
+          ? `Not enough trading history before ${dateStr} to measure that day's move.`
+          : `${symbol} has no trading data around ${dateStr}.`,
+      );
+    }
+
+    const day = history[idx];
+    const prev = history[idx - 1];
+    const change = day.c - prev.c;
+    const changePercent = (change / prev.c) * 100;
+
+    // S&P 500 context for the honest "market-wide move" fallback.
+    let marketChangePercent: number | null = null;
+    try {
+      const spx = await getDailyHistory("^GSPC", fromMs, toMs);
+      const mIdx = spx.findIndex((p) => utcDay(p.t) === utcDay(day.t));
+      if (mIdx > 0) {
+        marketChangePercent =
+          ((spx[mIdx].c - spx[mIdx - 1].c) / spx[mIdx - 1].c) * 100;
+      }
+    } catch {
+      // context is optional
+    }
+
+    const { items, provider } = await getJumpNews(symbol, dateStr, reqMs);
+    const explanation = explainJump(
+      symbol,
+      utcDay(day.t),
+      changePercent,
+      marketChangePercent,
+      items,
+    );
+
+    return {
+      symbol,
+      requestedDate: dateStr,
+      date: new Date(day.t).toISOString(),
+      dateShifted,
+      close: day.c,
+      previousClose: prev.c,
+      change,
+      changePercent,
+      marketChangePercent,
+      explanation,
+      items: items.slice(0, 6),
+      provider,
+      series: history,
+      highlightT: day.t,
+      sampleData: useMock(),
+    };
+  });
+}
+
+/**
+ * "Top 3 Unusual Moves Today" — the intended newsletter content, built from
+ * the same movers + explanation pipeline as the dashboard. A future cron job
+ * can fetch /api/digest and pipe `text` straight into an email service.
+ */
+export async function getDigest(): Promise<DigestResponse> {
+  return cached("digest", TTL.digest, async () => {
+    const movers = await getMovers();
+    const seen = new Set<string>();
+    const top = [...movers.gainers, ...movers.losers]
+      .filter((s) => (seen.has(s.symbol) ? false : seen.add(s.symbol)))
+      .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
+      .slice(0, 3);
+
+    const items = await Promise.all(
+      top.map(async (s) => {
+        const news = await getNews(s.symbol, s.changePercent);
+        return {
+          symbol: s.symbol,
+          name: s.name,
+          price: s.price,
+          changePercent: s.changePercent,
+          explanation: news.explanation.text,
+        };
+      }),
+    );
+
+    const date = new Date().toISOString().slice(0, 10);
+    const subject = `Top 3 unusual moves — ${date}`;
+    const text = [
+      `# ${subject}`,
+      "",
+      ...items.map((it, i) => {
+        const sign = it.changePercent >= 0 ? "+" : "";
+        return `${i + 1}. **${it.symbol}** (${it.name}) ${sign}${it.changePercent.toFixed(2)}%\n   ${it.explanation}`;
+      }),
+      "",
+      "_Not investment advice. Unsubscribe anytime._",
+    ].join("\n");
+
+    return { date, subject, items, text, sampleData: movers.sampleData };
   });
 }
 

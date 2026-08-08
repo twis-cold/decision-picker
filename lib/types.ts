@@ -48,6 +48,8 @@ export interface QuoteDetail extends StockSummary {
   fiftyTwoWeekLow: number | null;
   trailingPE: number | null;
   avgVolume: number | null;
+  beta: number | null;
+  dividendYield: number | null; // fraction, e.g. 0.0044 = 0.44%
   exchange: string | null;
   marketState: string | null;
   sampleData: boolean;
@@ -85,5 +87,66 @@ export interface SearchResult {
 export interface SearchResponse {
   query: string;
   results: SearchResult[];
+  sampleData: boolean;
+}
+
+export interface ValuePoint {
+  t: number; // unix ms
+  v: number; // dollar value (or price)
+}
+
+export interface HindsightResponse {
+  symbol: string;
+  name: string | null;
+  requestedDate: string; // YYYY-MM-DD as entered
+  startDate: string; // ISO of the actual first trading day used
+  startPrice: number;
+  shares: number;
+  amountInvested: number;
+  valueNow: number;
+  endDate: string; // ISO
+  gain: number;
+  returnPercent: number;
+  series: ValuePoint[];
+  sampleData: boolean;
+}
+
+export interface JumpResponse {
+  symbol: string;
+  requestedDate: string; // YYYY-MM-DD as entered
+  date: string; // ISO of the actual trading day analyzed
+  dateShifted: boolean;
+  close: number;
+  previousClose: number;
+  change: number;
+  changePercent: number;
+  marketChangePercent: number | null; // S&P 500 that same day
+  explanation: Explanation;
+  items: NewsItem[];
+  provider: "finnhub" | "yahoo" | "sample" | "none";
+  series: ChartPoint[]; // daily context around the date
+  highlightT: number; // timestamp of the analyzed day within series
+  remaining: number | null; // free lookups left today; null = unlimited
+  sampleData: boolean;
+}
+
+export interface SessionInfo {
+  email: string | null;
+  pro: boolean;
+}
+
+export interface DigestItem {
+  symbol: string;
+  name: string;
+  price: number;
+  changePercent: number;
+  explanation: string;
+}
+
+export interface DigestResponse {
+  date: string;
+  subject: string;
+  items: DigestItem[];
+  text: string; // ready-to-send markdown body
   sampleData: boolean;
 }

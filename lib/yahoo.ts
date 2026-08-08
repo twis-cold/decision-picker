@@ -82,6 +82,13 @@ export const fetchGainers = (count = 8) => screen("day_gainers", count);
 export const fetchLosers = (count = 8) => screen("day_losers", count);
 export const fetchActives = (count = 8) => screen("most_actives", count);
 
+interface YahooSummaryDetail {
+  summaryDetail?: {
+    beta?: number;
+    dividendYield?: number;
+  };
+}
+
 export async function fetchQuote(symbol: string): Promise<QuoteDetail> {
   let q: YahooQuoteLike;
   try {
@@ -90,6 +97,29 @@ export async function fetchQuote(symbol: string): Promise<QuoteDetail> {
     q = unwrapValidationError(err);
   }
   if (!q?.symbol) throw new Error(`No quote for ${symbol}`);
+
+  // Beta and dividend yield live in quoteSummary, not quote(); they're
+  // nice-to-haves, so a failure here must not sink the whole quote.
+  let beta: number | null = null;
+  let dividendYield: number | null = null;
+  try {
+    let qs: YahooSummaryDetail;
+    try {
+      qs = (await yf.quoteSummary(symbol, {
+        modules: ["summaryDetail"],
+      })) as YahooSummaryDetail;
+    } catch (err) {
+      qs = unwrapValidationError(err);
+    }
+    beta = qs.summaryDetail?.beta ?? null;
+    const dy = qs.summaryDetail?.dividendYield;
+    // Yahoo reports a fraction (0.0044 = 0.44%) but has been seen flipping
+    // to percent units; normalize to a fraction.
+    dividendYield = dy == null ? null : dy > 1 ? dy / 100 : dy;
+  } catch {
+    // leave nulls
+  }
+
   return {
     ...toSummary(q),
     previousClose: q.regularMarketPreviousClose ?? null,
@@ -100,6 +130,8 @@ export async function fetchQuote(symbol: string): Promise<QuoteDetail> {
     fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? null,
     trailingPE: q.trailingPE ?? null,
     avgVolume: q.averageDailyVolume3Month ?? null,
+    beta,
+    dividendYield,
     exchange: q.fullExchangeName ?? null,
     marketState: q.marketState ?? null,
     sampleData: false,
@@ -158,6 +190,27 @@ export async function fetchSpark(
 ): Promise<{ points: number[]; previousClose: number | null }> {
   const { points, previousClose } = await fetchChart(symbol, "1D");
   return { points: points.map((p) => p.c), previousClose };
+}
+
+/** Daily closes between two dates (for the hindsight calculator / jump lookup). */
+export async function fetchDailyHistory(
+  symbol: string,
+  period1: Date,
+  period2?: Date,
+): Promise<ChartPoint[]> {
+  let result: YahooChartResult;
+  try {
+    result = (await yf.chart(symbol, {
+      period1,
+      ...(period2 ? { period2 } : {}),
+      interval: "1d",
+    })) as YahooChartResult;
+  } catch (err) {
+    result = unwrapValidationError(err);
+  }
+  return (result.quotes ?? [])
+    .filter((q) => q.close != null)
+    .map((q) => ({ t: new Date(q.date).getTime(), c: q.close as number }));
 }
 
 interface YahooSearchResult {

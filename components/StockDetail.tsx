@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatChange, formatPercent } from "@/lib/format";
 import type { NewsResponse, QuoteDetail } from "@/lib/types";
+import AdSlot from "./AdSlot";
+import { useApp } from "./AppProviders";
 import NewsList from "./NewsList";
 import PriceChart from "./PriceChart";
 import PriceTicker from "./PriceTicker";
@@ -11,9 +13,10 @@ import StatGrid from "./StatGrid";
 import { usePoll } from "./usePoll";
 
 export default function StockDetail({ symbol }: { symbol: string }) {
+  const { pro } = useApp();
   const { data: quote, error, loading, reload } = usePoll<QuoteDetail>(
     `/api/quote/${encodeURIComponent(symbol)}`,
-    60_000,
+    pro ? 30_000 : 60_000,
   );
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
@@ -104,6 +107,8 @@ export default function StockDetail({ symbol }: { symbol: string }) {
 
       <h2 className="detail-section-title">KEY STATS</h2>
       <StatGrid quote={quote} />
+
+      <AdSlot variant="banner" />
 
       <h2 className="detail-section-title">WHY IT&rsquo;S MOVING</h2>
       {news ? (

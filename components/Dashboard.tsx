@@ -2,21 +2,23 @@
 
 import { formatClock } from "@/lib/format";
 import type { MoversResponse, StockSummary } from "@/lib/types";
+import AdSlot from "./AdSlot";
+import { useApp } from "./AppProviders";
 import StockCard from "./StockCard";
 import { usePoll } from "./usePoll";
-
-const REFRESH_MS = 60_000;
 
 function Section({
   title,
   tick,
   tickClass,
   stocks,
+  adAfter,
 }: {
   title: string;
   tick: string;
   tickClass: string;
   stocks: StockSummary[];
+  adAfter?: number;
 }) {
   return (
     <section>
@@ -26,8 +28,11 @@ function Section({
         </span>
         {title}
       </h2>
-      {stocks.map((s) => (
-        <StockCard key={s.symbol} stock={s} />
+      {stocks.map((s, i) => (
+        <div key={s.symbol}>
+          <StockCard stock={s} />
+          {adAfter === i && <AdSlot variant="native" />}
+        </div>
       ))}
     </section>
   );
@@ -56,9 +61,11 @@ function Skeletons() {
 }
 
 export default function Dashboard() {
+  const { pro } = useApp();
+  // Pro perk: priority refresh (30s instead of 60s).
   const { data, error, loading, reload } = usePoll<MoversResponse>(
     "/api/movers",
-    REFRESH_MS,
+    pro ? 30_000 : 60_000,
   );
 
   if (loading && !data) return <Skeletons />;
@@ -80,35 +87,45 @@ export default function Dashboard() {
   if (!data) return null;
 
   return (
-    <>
-      <div className="dash-meta">
-        <h1 className="dash-title">MARKET MOVERS</h1>
-        <span className="updated">
-          updated {formatClock(new Date(data.asOf))} · refreshes every 60s
-        </span>
-        {data.sampleData && <span className="badge-sample">SAMPLE DATA</span>}
-        {error && <span className="stale-note">refresh failed — showing last data</span>}
+    <div className="dash-layout">
+      <div>
+        <div className="dash-meta">
+          <h1 className="dash-title">MARKET MOVERS</h1>
+          <span className="updated">
+            updated {formatClock(new Date(data.asOf))} · refreshes every{" "}
+            {pro ? "30s" : "60s"}
+          </span>
+          {data.sampleData && <span className="badge-sample">SAMPLE DATA</span>}
+          {error && (
+            <span className="stale-note">refresh failed — showing last data</span>
+          )}
+        </div>
+        <div className="movers-grid">
+          <Section
+            title="TOP GAINERS"
+            tick="▲"
+            tickClass=""
+            stocks={data.gainers}
+          />
+          <Section
+            title="TOP LOSERS"
+            tick="▼"
+            tickClass="down"
+            stocks={data.losers}
+          />
+          <Section
+            title="MOST ACTIVE"
+            tick="≡"
+            tickClass="neutral"
+            stocks={data.actives}
+            adAfter={3}
+          />
+        </div>
+        <AdSlot variant="banner" />
       </div>
-      <div className="movers-grid">
-        <Section
-          title="TOP GAINERS"
-          tick="▲"
-          tickClass=""
-          stocks={data.gainers}
-        />
-        <Section
-          title="TOP LOSERS"
-          tick="▼"
-          tickClass="down"
-          stocks={data.losers}
-        />
-        <Section
-          title="MOST ACTIVE"
-          tick="≡"
-          tickClass="neutral"
-          stocks={data.actives}
-        />
-      </div>
-    </>
+      <aside className="rail">
+        <AdSlot variant="rail" />
+      </aside>
+    </div>
   );
 }

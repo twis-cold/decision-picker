@@ -132,6 +132,8 @@ export function mockQuote(symbol: string): QuoteDetail {
     fiftyTwoWeekLow: round2(u.base * (0.5 + rng() * 0.2)),
     trailingPE: round2(8 + rng() * 60),
     avgVolume: Math.floor(rng() * 80e6) + 10e6,
+    beta: round2(0.5 + rng() * 1.6),
+    dividendYield: rng() < 0.4 ? round2(rng() * 3) / 100 : null,
     exchange: "NasdaqGS (sample)",
     marketState: "REGULAR",
     sampleData: true,
@@ -207,6 +209,72 @@ export function mockNews(symbol: string): NewsItem[] {
       publishedAt: new Date(
         Date.now() - (i + 1) * (2 + rng() * 6) * 3600 * 1000,
       ).toISOString(),
+    };
+  });
+}
+
+const DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * Deterministic daily-close history: a smooth pseudo-random function of the
+ * absolute day index (layered sines seeded per symbol), so any two requests
+ * for overlapping date ranges agree with each other. Weekends are skipped.
+ */
+export function mockDailyHistory(
+  symbol: string,
+  fromMs: number,
+  toMs: number = Date.now(),
+): ChartPoint[] {
+  const u = universeFor(symbol);
+  const seed = hashString(u.symbol + ":hist");
+  const s1 = (seed % 1000) / 159;
+  const s2 = (seed % 3331) / 530;
+  const s3 = (seed % 7907) / 1258;
+
+  const out: ChartPoint[] = [];
+  for (let t = fromMs; t <= toMs; t += DAY_MS) {
+    const day = new Date(t).getUTCDay();
+    if (day === 0 || day === 6) continue; // weekend
+    const d = Math.floor(t / DAY_MS);
+    const f =
+      0.5 +
+      0.25 * Math.sin(d / 23 + s1) +
+      0.15 * Math.sin(d / 7 + s2) +
+      0.1 * Math.sin(d / 3.1 + s3);
+    out.push({
+      t: Date.UTC(
+        new Date(t).getUTCFullYear(),
+        new Date(t).getUTCMonth(),
+        new Date(t).getUTCDate(),
+        14,
+        30,
+      ),
+      c: round2(u.base * (0.55 + 0.45 * f)),
+    });
+  }
+  return out;
+}
+
+/**
+ * Headlines "from around" a past date — seeded by symbol+date, and only
+ * ~60% of the time, so the honest "no news found" path gets exercised too.
+ */
+export function mockJumpNews(symbol: string, dateStr: string): NewsItem[] {
+  const u = universeFor(symbol);
+  const rng = mulberry32(hashString(symbol + ":" + dateStr));
+  if (rng() > 0.6) return [];
+  const start = Math.floor(rng() * HEADLINE_TEMPLATES.length);
+  const base = new Date(dateStr + "T13:00:00Z").getTime();
+  return Array.from({ length: 2 + Math.floor(rng() * 2) }, (_, i) => {
+    const [title, summary] =
+      HEADLINE_TEMPLATES[(start + i) % HEADLINE_TEMPLATES.length];
+    return {
+      id: `${symbol}-${dateStr}-sample-${i}`,
+      title: title.replaceAll("{name}", u.name).replaceAll("{symbol}", u.symbol),
+      summary,
+      source: "Sample Wire",
+      url: "https://example.com/sample-news",
+      publishedAt: new Date(base - i * 9 * 3600 * 1000).toISOString(),
     };
   });
 }

@@ -108,3 +108,68 @@ export function explainMove(
     text: `${move} No recent headlines found for this ticker — the move likely reflects broader market or sector conditions.`,
   };
 }
+
+function pastDirectionPhrase(changePercent: number): string {
+  const abs = Math.abs(changePercent);
+  const dir = changePercent >= 0 ? "rose" : "fell";
+  if (abs >= 5) return `${dir} sharply`;
+  if (abs >= 2) return `${dir} solidly`;
+  return `${dir} modestly`;
+}
+
+/**
+ * Retroactive version for "Explain the Jump": same headline classifier,
+ * past tense, with an S&P 500 comparison so that when no headline explains
+ * the move we can honestly attribute it to the broader market — or admit
+ * we don't know — instead of inventing a cause.
+ */
+export function explainJump(
+  symbol: string,
+  dateLabel: string,
+  changePercent: number,
+  marketChangePercent: number | null,
+  news: NewsItem[],
+): Explanation {
+  const sign = changePercent >= 0 ? "+" : "";
+  const move = `On ${dateLabel}, ${symbol} ${pastDirectionPhrase(changePercent)} (${sign}${changePercent.toFixed(2)}%).`;
+
+  for (const category of CATEGORIES) {
+    const hit = news.find(
+      (n) =>
+        category.pattern.test(n.title) ||
+        (n.summary ? category.pattern.test(n.summary) : false),
+    );
+    if (hit) {
+      return {
+        category: category.label,
+        text: `${move} Headlines from around that day point to ${category.phrase}: “${hit.title}”`,
+      };
+    }
+  }
+
+  const marketDriven =
+    marketChangePercent != null &&
+    Math.sign(marketChangePercent) === Math.sign(changePercent) &&
+    Math.abs(marketChangePercent) >= 1 &&
+    Math.abs(marketChangePercent) >= Math.abs(changePercent) * 0.4;
+
+  if (marketDriven) {
+    const mSign = (marketChangePercent as number) >= 0 ? "+" : "";
+    return {
+      category: "Market-wide",
+      text: `${move} The S&P 500 moved ${mSign}${(marketChangePercent as number).toFixed(2)}% the same day, so this looks like a broad market move rather than company-specific news.`,
+    };
+  }
+
+  if (news.length > 0) {
+    return {
+      category: "General",
+      text: `${move} None of the headlines from that period point to a clear catalyst — this may have been a broader market or sector move, or low-volume volatility. Closest headline: “${news[0].title}”`,
+    };
+  }
+
+  return {
+    category: "General",
+    text: `${move} No major news found from that period — this may have been a broader market move or low-volume volatility.`,
+  };
+}

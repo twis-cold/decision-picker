@@ -16,14 +16,28 @@ interface FinnhubNewsItem {
 }
 
 /** Company news from the last 7 days, newest first. */
-export async function fetchFinnhubNews(symbol: string): Promise<NewsItem[]> {
+export function fetchFinnhubNews(symbol: string): Promise<NewsItem[]> {
+  const to = new Date();
+  return fetchFinnhubNewsBetween(
+    symbol,
+    new Date(to.getTime() - 7 * 24 * 3600 * 1000),
+    to,
+  );
+}
+
+/**
+ * Company news for an arbitrary window (powers "Explain the Jump").
+ * Note: Finnhub's free tier only archives roughly the last year.
+ */
+export async function fetchFinnhubNewsBetween(
+  symbol: string,
+  from: Date,
+  to: Date,
+): Promise<NewsItem[]> {
   const token = process.env.FINNHUB_API_KEY;
   if (!token) throw new Error("FINNHUB_API_KEY not set");
 
-  const to = new Date();
-  const from = new Date(to.getTime() - 7 * 24 * 3600 * 1000);
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
-
   const url = `${BASE}/company-news?symbol=${encodeURIComponent(symbol)}&from=${fmt(from)}&to=${fmt(to)}&token=${token}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Finnhub responded ${res.status}`);

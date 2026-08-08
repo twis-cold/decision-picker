@@ -29,6 +29,32 @@ export function formatCompact(value: number | null | undefined): string {
   return String(value);
 }
 
+/** 0.0044 → "0.44%"; null → "—" */
+export function formatYield(fraction: number | null | undefined): string {
+  if (fraction == null || Number.isNaN(fraction)) return "—";
+  return `${(fraction * 100).toFixed(2)}%`;
+}
+
+/** 2431.183 → "$2,431.18" */
+export function formatMoney(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
+/** "2020-01-02" or ms → "Jan 2, 2020" */
+export function formatDate(input: string | number): string {
+  const d = typeof input === "number" ? new Date(input) : new Date(`${input}T12:00:00Z`);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export function timeAgo(iso: string): string {
   const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
   if (seconds < 60) return "just now";
