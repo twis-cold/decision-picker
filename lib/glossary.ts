@@ -7,6 +7,8 @@ export const GLOSSARY: Record<string, string> = {
     "The total value of all the company's shares — what it would cost to buy the whole company at today's price.",
   "P/E (TTM)":
     "How expensive the stock is relative to how much money the company actually makes — the price of $1 of its yearly profit.",
+  "EPS (TTM)":
+    "Earnings per share — the company's profit over the last year divided across every share.",
   "52W High":
     "The highest price the stock has traded at in the past year.",
   "52W Low": "The lowest price the stock has traded at in the past year.",

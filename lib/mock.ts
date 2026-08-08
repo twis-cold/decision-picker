@@ -2,9 +2,14 @@ import type {
   ChartPoint,
   ChartRange,
   EarningsItem,
+  FinancialRow,
+  IndexQuote,
   NewsItem,
+  OptionContract,
   QuoteDetail,
+  RatingsResponse,
   SearchResult,
+  StatementType,
   StockSummary,
 } from "./types";
 
@@ -84,6 +89,8 @@ function mockSummary(u: (typeof UNIVERSE)[number]): StockSummary {
     volume: Math.floor(rng() * 180e6) + 5e6,
     marketCap: u.cap,
     currency: "USD",
+    fiftyTwoWeekHigh: round2(u.base * (1.0 + rng() * 0.45)),
+    fiftyTwoWeekLow: round2(u.base * (0.5 + rng() * 0.3)),
   };
 }
 
@@ -132,6 +139,7 @@ export function mockQuote(symbol: string): QuoteDetail {
     fiftyTwoWeekHigh: round2(u.base * (1.2 + rng() * 0.4)),
     fiftyTwoWeekLow: round2(u.base * (0.5 + rng() * 0.2)),
     trailingPE: round2(8 + rng() * 60),
+    eps: round2(s.price / (8 + rng() * 60)),
     avgVolume: Math.floor(rng() * 80e6) + 10e6,
     beta: round2(0.5 + rng() * 1.6),
     dividendYield: rng() < 0.4 ? round2(rng() * 3) / 100 : null,
@@ -146,6 +154,8 @@ const RANGE_STEPS: Record<ChartRange, { points: number; stepMs: number }> = {
   "1W": { points: 65, stepMs: 30 * 60 * 1000 },
   "1M": { points: 22, stepMs: 24 * 3600 * 1000 },
   "1Y": { points: 252, stepMs: 24 * 3600 * 1000 },
+  "5Y": { points: 260, stepMs: 7 * 24 * 3600 * 1000 },
+  MAX: { points: 240, stepMs: 30 * 24 * 3600 * 1000 },
 };
 
 export function mockChart(
@@ -164,11 +174,169 @@ export function mockChart(
   let value = range === "1D" ? prevClose : u.base * (0.85 + rng() * 0.2);
   const start = Date.now() - n * stepMs;
   for (let i = 0; i < n; i++) {
+    const open = value;
     value += drift + (rng() - 0.5) * vol;
-    out.push({ t: start + i * stepMs, c: round2(value) });
+    const hi = Math.max(open, value) + rng() * vol * 0.6;
+    const lo = Math.min(open, value) - rng() * vol * 0.6;
+    out.push({
+      t: start + i * stepMs,
+      c: round2(value),
+      o: round2(open),
+      h: round2(hi),
+      l: round2(lo),
+    });
   }
   out[out.length - 1].c = s.price; // land on the "current" price
   return { points: out, previousClose: prevClose };
+}
+
+export function mockIndices(): IndexQuote[] {
+  const defs: [string, string, number][] = [
+    ["^GSPC", "S&P 500", 6480],
+    ["^IXIC", "NASDAQ", 21930],
+    ["^DJI", "DOW", 44120],
+    ["^FTSE", "FTSE 100", 9140],
+    ["^NSEI", "NIFTY 50", 24610],
+  ];
+  return defs.map(([symbol, label, base]) => {
+    const rng = rngFor(symbol);
+    const changePercent = round2((rng() - 0.5) * 3);
+    return {
+      symbol,
+      label,
+      value: round2(base * (1 + changePercent / 100)),
+      changePercent,
+    };
+  });
+}
+
+const STATEMENT_ROWS: Record<StatementType, string[]> = {
+  ic: [
+    "Revenue",
+    "Cost of revenue",
+    "Gross profit",
+    "Operating expenses",
+    "Operating income",
+    "Net income",
+    "Basic earnings per share",
+  ],
+  bs: [
+    "Cash and cash equivalents",
+    "Total current assets",
+    "Total assets",
+    "Total current liabilities",
+    "Long-term debt",
+    "Total liabilities",
+    "Total shareholders' equity",
+  ],
+  cf: [
+    "Net cash from operating activities",
+    "Capital expenditures",
+    "Net cash used in investing activities",
+    "Net cash used in financing activities",
+    "Free cash flow",
+    "Net change in cash",
+  ],
+};
+
+export function mockFinancials(
+  symbol: string,
+  freq: "quarterly" | "annual",
+  statement: StatementType,
+): { periods: string[]; rows: FinancialRow[] } {
+  const u = universeFor(symbol);
+  const scale = (u.cap ?? 5e10) / 40; // rough revenue scale
+  const year = new Date().getUTCFullYear();
+  const periods =
+    freq === "annual"
+      ? [3, 2, 1, 0].map((i) => `FY${year - 1 - i}`).reverse()
+      : [0, 1, 2, 3].map((i) => `Q${((4 - i + 1) % 4) + 1} ${year - (i > 1 ? 1 : 0)}`);
+  const rows = STATEMENT_ROWS[statement].map((label, r) => ({
+    label,
+    values: periods.map((_, p) => {
+      const rng = mulberry32(hashString(`${symbol}:${statement}:${r}:${p}`));
+      // Per-share figures are dollars, not company-scale billions.
+      if (/per share/i.test(label)) {
+        return round2(0.5 + rng() * 4);
+      }
+      const base = scale / (r + 1);
+      const sign = /liabilit|debt|cost|expens|used|expenditure/i.test(label) ? -0.6 : 1;
+      return Math.round(base * sign * (0.7 + rng() * 0.6));
+    }),
+  }));
+  return { periods, rows };
+}
+
+export function mockOptions(symbol: string): {
+  expiration: string;
+  calls: OptionContract[];
+  puts: OptionContract[];
+} {
+  const u = universeFor(symbol);
+  const s = mockSummary(u);
+  const rng = rngFor(symbol + ":opt");
+  const step = Math.max(1, Math.round(u.base / 20));
+  const atm = Math.round(s.price / step) * step;
+  const strikes = Array.from({ length: 9 }, (_, i) => atm + (i - 4) * step);
+  const friday = new Date();
+  friday.setUTCDate(friday.getUTCDate() + ((5 - friday.getUTCDay() + 7) % 7 || 7));
+  const make = (call: boolean): OptionContract[] =>
+    strikes.map((strike) => {
+      const intrinsic = Math.max(0, call ? s.price - strike : strike - s.price);
+      const time = u.base * 0.02 * (0.5 + rng());
+      const mid = intrinsic + time;
+      return {
+        strike,
+        last: round2(mid),
+        bid: round2(mid * 0.96),
+        ask: round2(mid * 1.04),
+      };
+    });
+  return {
+    expiration: friday.toISOString().slice(0, 10),
+    calls: make(true),
+    puts: make(false),
+  };
+}
+
+export function mockRatings(symbol: string): RatingsResponse {
+  const u = universeFor(symbol);
+  const s = mockSummary(u);
+  const rng = rngFor(symbol + ":rate");
+  const strongBuy = Math.floor(rng() * 15);
+  const buy = Math.floor(rng() * 18);
+  const hold = Math.floor(rng() * 12);
+  const sell = Math.floor(rng() * 5);
+  const strongSell = Math.floor(rng() * 3);
+  const bullish = strongBuy + buy > hold + sell + strongSell;
+  return {
+    symbol: u.symbol,
+    strongBuy,
+    buy,
+    hold,
+    sell,
+    strongSell,
+    targetMean: round2(s.price * (bullish ? 1.05 + rng() * 0.2 : 0.9 + rng() * 0.15)),
+    recommendation: bullish ? "buy" : "hold",
+    available: true,
+    sampleData: true,
+  };
+}
+
+export function mockGeneralNews(category: string): NewsItem[] {
+  const rng = mulberry32(hashString("news:" + category + dayKey()));
+  const picks = [...UNIVERSE].sort(() => rng() - 0.5).slice(0, 10);
+  return picks.map((u, i) => {
+    const [title, summary] = HEADLINE_TEMPLATES[(i + Math.floor(rng() * 5)) % HEADLINE_TEMPLATES.length];
+    return {
+      id: `feed-${category}-${i}`,
+      title: title.replaceAll("{name}", u.name).replaceAll("{symbol}", u.symbol),
+      summary,
+      source: "Sample Wire",
+      url: "https://example.com/sample-news",
+      publishedAt: new Date(Date.now() - (i + 1) * (1 + rng() * 3) * 3600 * 1000).toISOString(),
+    };
+  });
 }
 
 const HEADLINE_TEMPLATES: [string, string][] = [

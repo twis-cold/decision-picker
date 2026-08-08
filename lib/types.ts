@@ -7,13 +7,29 @@ export interface StockSummary {
   volume: number;
   marketCap: number | null;
   currency: string;
+  fiftyTwoWeekHigh?: number | null;
+  fiftyTwoWeekLow?: number | null;
 }
 
 export interface MoversResponse {
   gainers: StockSummary[];
   losers: StockSummary[];
   actives: StockSummary[];
+  highs52w: StockSummary[];
+  lows52w: StockSummary[];
   asOf: string;
+  sampleData: boolean;
+}
+
+export interface IndexQuote {
+  symbol: string;
+  label: string;
+  value: number;
+  changePercent: number;
+}
+
+export interface IndicesResponse {
+  indices: IndexQuote[];
   sampleData: boolean;
 }
 
@@ -24,11 +40,14 @@ export interface SparkResponse {
   sampleData: boolean;
 }
 
-export type ChartRange = "1D" | "1W" | "1M" | "1Y";
+export type ChartRange = "1D" | "1W" | "1M" | "1Y" | "5Y" | "MAX";
 
 export interface ChartPoint {
   t: number; // unix ms
   c: number; // close price
+  o?: number; // open (present when the source provides OHLC)
+  h?: number;
+  l?: number;
 }
 
 export interface ChartResponse {
@@ -47,6 +66,7 @@ export interface QuoteDetail extends StockSummary {
   fiftyTwoWeekHigh: number | null;
   fiftyTwoWeekLow: number | null;
   trailingPE: number | null;
+  eps: number | null; // trailing twelve months
   avgVolume: number | null;
   beta: number | null;
   dividendYield: number | null; // fraction, e.g. 0.0044 = 0.44%
@@ -184,5 +204,68 @@ export interface CompareResponse {
   from: string; // requested start (YYYY-MM-DD)
   startDate: string; // ISO of the common first trading day actually used
   series: CompareSeries[];
+  sampleData: boolean;
+}
+
+export interface FinancialRow {
+  label: string;
+  values: (number | null)[]; // one per period, newest first
+}
+
+export type StatementType = "ic" | "bs" | "cf";
+
+export interface FinancialsResponse {
+  symbol: string;
+  freq: "quarterly" | "annual";
+  statement: StatementType;
+  periods: string[]; // column headers, newest first
+  rows: FinancialRow[];
+  needsKey: boolean;
+  sampleData: boolean;
+}
+
+export interface OptionContract {
+  strike: number;
+  last: number | null;
+  bid: number | null;
+  ask: number | null;
+}
+
+export interface OptionsResponse {
+  symbol: string;
+  expiration: string | null; // YYYY-MM-DD
+  calls: OptionContract[];
+  puts: OptionContract[];
+  available: boolean;
+  sampleData: boolean;
+}
+
+export interface RatingsResponse {
+  symbol: string;
+  strongBuy: number;
+  buy: number;
+  hold: number;
+  sell: number;
+  strongSell: number;
+  targetMean: number | null;
+  recommendation: string | null; // e.g. "buy", "hold"
+  available: boolean;
+  sampleData: boolean;
+}
+
+export interface NewsFeedResponse {
+  items: NewsItem[];
+  filter: { symbol: string | null; category: string };
+  provider: "finnhub" | "yahoo" | "sample";
+  sampleData: boolean;
+}
+
+export interface PaperPerformanceRequest {
+  transactions: { symbol: string; shares: number; total: number; at: string }[];
+  initialCash: number;
+}
+
+export interface PaperPerformanceResponse {
+  series: CompareSeries[]; // [portfolio, benchmark] as $-valued series
   sampleData: boolean;
 }

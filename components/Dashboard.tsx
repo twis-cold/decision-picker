@@ -122,6 +122,22 @@ export default function Dashboard() {
             stocks={data.actives}
             adAfter={3}
           />
+          {data.highs52w.length > 0 && (
+            <Section
+              title="NEAR 52W HIGH"
+              tick="↑"
+              tickClass=""
+              stocks={data.highs52w}
+            />
+          )}
+          {data.lows52w.length > 0 && (
+            <Section
+              title="NEAR 52W LOW"
+              tick="↓"
+              tickClass="down"
+              stocks={data.lows52w}
+            />
+          )}
         </div>
         <AdSlot variant="banner" />
       </div>

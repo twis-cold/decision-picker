@@ -43,6 +43,38 @@ no charting library, no UI framework.
   with a per-ticker return table. Reuses the hindsight history pipeline;
   line colors are a colorblind-checked cyan/amber/violet trio, deliberately
   distinct from the green/red gain/loss coding
+- **Market indices strip** — S&P 500, Nasdaq, Dow, FTSE 100, and Nifty 50
+  with live value + % change, shown as a compact bar under the nav on
+  every page
+- **52-week highs & lows** — a dashboard section (alongside gainers/
+  losers/actives) surfacing stocks within ~3% of their 52-week high or low
+- **Advanced charting** — on stock detail pages: line / candlestick / bar
+  chart types, ranges out to 5Y and MAX, and toggleable indicators (SMA,
+  EMA, Bollinger Bands overlaid on price; RSI and MACD as sub-panels
+  below), all computed client-side from the same price series — no extra
+  API calls, off by default so the chart stays clean
+- **Financials tab** — quarterly/annual Income Statement, Balance Sheet,
+  and Cash Flow, as reported to Finnhub's free tier
+- **Options chain** — a minimal near-term calls/puts table (strike,
+  last/bid/ask) via Yahoo; reference only, no greeks or IV modeling, and
+  nothing here is ever tradable (see Paper Trading below)
+- **Analyst ratings** — consensus buy/hold/sell breakdown (Finnhub) and
+  average price target (Yahoo) on every stock detail page
+- **Paper trading** (`/portfolio`) — a simulated brokerage account funded
+  with $100,000 in fake cash. Market, limit, and stop-loss orders (day or
+  GTC) from any stock page; holdings, day P&L, unrealized gain/loss, an
+  allocation donut chart, full transaction history, and a performance
+  chart vs. the S&P 500 (reusing the comparison-view chart). **No real
+  money, brokerage, or order routing is ever involved** — labeled
+  "PAPER — NOT REAL MONEY" throughout
+- **News feed** (`/news`) — live headlines filterable by category
+  (general/M&A/crypto/forex) or ticker, reusing the same news pipeline as
+  "why is this moving" and "Explain the Jump"
+- **Alerts & notifications** (`/alerts`) — price-above, price-below, and
+  unusual-volume alerts per ticker, plus automatic notifications when a
+  watchlist stock reports earnings. Delivered as in-app notifications via
+  the bell icon in the nav, checked roughly once a minute while the site
+  is open
 - **Ticker search** with keyboard navigation
 - Fully responsive, terminal-style dark UI
 
@@ -77,8 +109,36 @@ service when you add keys:
 
 | Source | Used for | Key needed |
 |---|---|---|
-| Yahoo Finance (unofficial, via [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2)) | Movers screeners, quotes, charts, history (also feeds hindsight + compare), search, fallback news | No |
-| [Finnhub](https://finnhub.io) (optional) | Company news, historical headlines for "Explain the Jump", earnings calendar (`/calendar/earnings`) | Free key |
+| Yahoo Finance (unofficial, via [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2)) | Movers screeners, quotes, charts (incl. OHLC + 5Y/MAX), history (also feeds hindsight/compare/paper performance), search, fallback news, indices, options chain, average analyst price target | No |
+| [Finnhub](https://finnhub.io) (optional) | Company news, historical headlines for "Explain the Jump", earnings calendar, financial statements as reported, analyst recommendation trends, general news feed | Free key |
+
+### Where the free tiers fall short
+
+Flagging this explicitly, as it determines what would need a paid API
+upgrade later:
+
+- **Financial statements** (Finnhub `/stock/financials-reported`, free
+  tier): only a handful of recent periods are returned, and line-item
+  labels are each company's own as-filed wording rather than a normalized
+  schema — fine for a quick look, not for cross-company comparison at
+  scale. A paid plan or a provider like Alpha Vantage's fundamentals
+  endpoints would give deeper, normalized history.
+- **Earnings call transcripts**: not available on Finnhub's free tier at
+  all. Skipped rather than faked — see the `TODO` in
+  `components/Financials.tsx`.
+- **Options data**: sourced from Yahoo's unofficial chain endpoint, which
+  only reliably returns the *nearest* expiration and no greeks/IV. Treated
+  purely as a reference table.
+- **Economic calendar** (Fed decisions, CPI, jobs reports, …): Finnhub
+  gates `/calendar/economic` behind a paid plan, and Yahoo has no public
+  equivalent. Rather than show fabricated events, the Earnings Calendar
+  page says so explicitly — see the `TODO` in
+  `components/EarningsCalendar.tsx`. A dedicated provider (e.g. Trading
+  Economics, FMP's paid tier) would be needed to add this for real.
+- **Real push notifications**: alerts are in-app only (bell icon +
+  `/alerts` inbox), checked while a tab is open. True push notifications
+  need a service worker + subscription store, noted as a `TODO` in
+  `components/PaperProvider.tsx` rather than half-built.
 
 Why this combination: Yahoo's unofficial API is the only free source with
 a **movers screener** (gainers/losers/actives) plus unlimited-ish quotes
@@ -112,7 +172,7 @@ All optional — see `.env.example` for full notes. Create `.env.local`:
 
 | Variable | Enables | Without it |
 |---|---|---|
-| `FINNHUB_API_KEY` | Richer news, historical headlines for jump lookups, earnings calendar ([free key](https://finnhub.io/register)) | Yahoo news fallback; jump lookups >1wk old show "no headline archive"; earnings page explains it needs the key |
+| `FINNHUB_API_KEY` | Richer news, historical headlines for jump lookups, earnings calendar, financial statements, analyst recommendation counts, categorized news feed ([free key](https://finnhub.io/register)) | Yahoo news fallback; jump lookups >1wk old show "no headline archive"; earnings/financials pages explain they need the key; ratings fall back to Yahoo's price target only |
 | `AUTH_SECRET` | Proper cookie signing (`openssl rand -hex 32`) | Insecure dev default |
 | `STRIPE_SECRET_KEY` + `STRIPE_PRICE_ID` | Real Stripe Checkout (test mode fine) | Demo upgrade button |
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature verification | Webhook returns 501 |
@@ -149,18 +209,24 @@ which is fine for a personal project.
 
 ```
 app/
-  page.tsx               # dashboard (movers)
-  stock/[symbol]/        # stock detail page
-  hindsight/             # "what would I have made" calculator
-  jump/                  # "explain the jump" retroactive lookup
+  page.tsx               # dashboard (movers + 52w highs/lows)
+  stock/[symbol]/        # stock detail: chart, financials, options tabs
+  watchlist/  earnings/  news/  compare/   # free feature pages
+  hindsight/  jump/                        # viral/shareable lookups
+  portfolio/  alerts/                      # paper trading + notifications
   pro/  account/         # pricing + sign-in
   api/                   # server-side data proxy + auth, stripe,
-                         #   newsletter, digest endpoints
-components/              # Dashboard, StockCard, PriceChart, ValueChart,
-                         #   AdSlot, GlossaryTip, NewsletterSignup, …
+                         #   newsletter, digest, paper-performance endpoints
+components/              # Dashboard, StockCard, PriceChart (chart types +
+                         #   indicators), MultiLineChart, OrderPanel,
+                         #   PortfolioView, AllocationDonut, NewsFeed,
+                         #   Ratings, Financials, OptionsChain, AlertForm,
+                         #   NotificationsBell, AdSlot, GlossaryTip, …
 lib/
   yahoo.ts               # Yahoo Finance access (yahoo-finance2)
-  finnhub.ts             # Finnhub company news (current + historical)
+  finnhub.ts             # Finnhub news, earnings, financials, ratings
+  indicators.ts           # SMA/EMA/RSI/MACD/Bollinger math (client-side)
+  paper.ts                # paper-trading engine: orders, fills, alerts
   explain.ts             # headline classifier → plain-English explanation
   glossary.ts            # Beginner Mode definitions
   auth.ts                # signed-cookie sessions + jump quota
@@ -173,3 +239,10 @@ lib/
 Quotes may be delayed and the "why is this moving" text is a heuristic
 guess from headlines. **Not financial advice** — this is a portfolio
 project for education and entertainment.
+
+**All trading on this site is simulated.** The Portfolio, order form, and
+alerts pages use fake starting cash against the site's own (delayed)
+quotes — there is no real brokerage integration, no real order execution,
+and no real money at any point. This is stated on every relevant page and
+in the footer; it is not a real trading platform and never places a real
+order anywhere.

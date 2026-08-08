@@ -77,6 +77,20 @@ export default function EarningsCalendar() {
         </span>
       </button>
 
+      {/*
+        Economic calendar (rate decisions, CPI, jobs reports, …): Finnhub's
+        /calendar/economic endpoint is PREMIUM-only, and Yahoo has no public
+        equivalent — so rather than fake entries, we say so. TODO: integrate
+        a dedicated economic-calendar API (e.g. Trading Economics, FMP paid
+        tier) and render it here alongside earnings.
+      */}
+      <p className="fine-print" style={{ marginTop: 0, marginBottom: 18 }}>
+        Looking for macro events (Fed decisions, CPI, jobs)? An economic
+        calendar needs a data source our current free-tier APIs don&rsquo;t
+        include — it&rsquo;s on the roadmap rather than shown with made-up
+        entries.
+      </p>
+
       {error && (
         <div className="error-box" role="alert">
           {error}

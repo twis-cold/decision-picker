@@ -5,13 +5,20 @@ import { useEffect, useState } from "react";
 import { formatChange, formatPercent } from "@/lib/format";
 import type { NewsResponse, QuoteDetail } from "@/lib/types";
 import AdSlot from "./AdSlot";
+import AlertForm from "./AlertForm";
 import { useApp } from "./AppProviders";
+import Financials from "./Financials";
 import NewsList from "./NewsList";
+import OptionsChain from "./OptionsChain";
+import OrderPanel from "./OrderPanel";
 import PriceChart from "./PriceChart";
 import PriceTicker from "./PriceTicker";
+import Ratings from "./Ratings";
 import StatGrid from "./StatGrid";
 import { usePoll } from "./usePoll";
 import WatchStar from "./WatchStar";
+
+type DetailTab = "overview" | "financials" | "options";
 
 export default function StockDetail({ symbol }: { symbol: string }) {
   const { pro, earningsToday } = useApp();
@@ -21,6 +28,7 @@ export default function StockDetail({ symbol }: { symbol: string }) {
   );
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
+  const [tab, setTab] = useState<DetailTab>("overview");
 
   // Fetch news once the first quote arrives (the explanation needs the
   // day's % change); don't refetch on every quote poll.
@@ -117,39 +125,71 @@ export default function StockDetail({ symbol }: { symbol: string }) {
 
       <PriceChart symbol={quote.symbol} />
 
+      <OrderPanel symbol={quote.symbol} price={quote.price} />
+      <AlertForm symbol={quote.symbol} price={quote.price} />
+
       <h2 className="detail-section-title">KEY STATS</h2>
       <StatGrid quote={quote} />
 
       <AdSlot variant="banner" />
 
-      <h2 className="detail-section-title">WHY IT&rsquo;S MOVING</h2>
-      {news ? (
-        <p className="explain-card">
-          <span className="cat">{news.explanation.category}</span>
-          {news.explanation.text}
-        </p>
-      ) : (
-        <p className="explain-card">
-          {newsError ?? "Reading recent headlines…"}
-        </p>
-      )}
+      <div className="range-toggle detail-tabs" role="tablist" aria-label="Detail sections">
+        {(
+          [
+            ["overview", "OVERVIEW"],
+            ["financials", "FINANCIALS"],
+            ["options", "OPTIONS"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-pressed={tab === id}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <h2 className="detail-section-title">RELATED NEWS</h2>
-      {news ? (
+      {tab === "overview" && (
         <>
-          <NewsList items={news.items} />
-          <p className="news-provider">
-            headlines via{" "}
-            {news.provider === "finnhub"
-              ? "Finnhub"
-              : news.provider === "yahoo"
-                ? "Yahoo Finance"
-                : "sample data"}
-          </p>
+          <Ratings symbol={quote.symbol} currentPrice={quote.price} />
+
+          <h2 className="detail-section-title">WHY IT&rsquo;S MOVING</h2>
+          {news ? (
+            <p className="explain-card">
+              <span className="cat">{news.explanation.category}</span>
+              {news.explanation.text}
+            </p>
+          ) : (
+            <p className="explain-card">
+              {newsError ?? "Reading recent headlines…"}
+            </p>
+          )}
+
+          <h2 className="detail-section-title">RELATED NEWS</h2>
+          {news ? (
+            <>
+              <NewsList items={news.items} />
+              <p className="news-provider">
+                headlines via{" "}
+                {news.provider === "finnhub"
+                  ? "Finnhub"
+                  : news.provider === "yahoo"
+                    ? "Yahoo Finance"
+                    : "sample data"}
+              </p>
+            </>
+          ) : (
+            <div className="skeleton" style={{ height: 120 }} />
+          )}
         </>
-      ) : (
-        <div className="skeleton" style={{ height: 120 }} />
       )}
+      {tab === "financials" && <Financials symbol={quote.symbol} />}
+      {tab === "options" && <OptionsChain symbol={quote.symbol} />}
     </div>
   );
 }

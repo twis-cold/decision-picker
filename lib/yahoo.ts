@@ -2,7 +2,9 @@ import YahooFinance from "yahoo-finance2";
 import type {
   ChartPoint,
   ChartRange,
+  IndexQuote,
   NewsItem,
+  OptionContract,
   QuoteDetail,
   SearchResult,
   StockSummary,
@@ -41,6 +43,7 @@ interface YahooQuoteLike {
   fiftyTwoWeekHigh?: number;
   fiftyTwoWeekLow?: number;
   trailingPE?: number;
+  epsTrailingTwelveMonths?: number;
   averageDailyVolume3Month?: number;
   marketCap?: number;
   currency?: string;
@@ -58,6 +61,8 @@ function toSummary(q: YahooQuoteLike): StockSummary {
     volume: q.regularMarketVolume ?? 0,
     marketCap: q.marketCap ?? null,
     currency: q.currency ?? "USD",
+    fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? null,
+    fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? null,
   };
 }
 
@@ -129,6 +134,7 @@ export async function fetchQuote(symbol: string): Promise<QuoteDetail> {
     fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? null,
     fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? null,
     trailingPE: q.trailingPE ?? null,
+    eps: q.epsTrailingTwelveMonths ?? null,
     avgVolume: q.averageDailyVolume3Month ?? null,
     beta,
     dividendYield,
@@ -140,17 +146,25 @@ export async function fetchQuote(symbol: string): Promise<QuoteDetail> {
 
 interface YahooChartResult {
   meta?: { chartPreviousClose?: number };
-  quotes?: { date: Date; close: number | null }[];
+  quotes?: {
+    date: Date;
+    close: number | null;
+    open?: number | null;
+    high?: number | null;
+    low?: number | null;
+  }[];
 }
 
 const RANGE_CONFIG: Record<
   ChartRange,
-  { days: number; interval: "5m" | "30m" | "1d" | "1wk" }
+  { days: number; interval: "5m" | "30m" | "1d" | "1wk" | "1mo" }
 > = {
   "1D": { days: 6, interval: "5m" }, // over-fetch, then slice to the last session
   "1W": { days: 8, interval: "30m" },
   "1M": { days: 32, interval: "1d" },
   "1Y": { days: 366, interval: "1d" },
+  "5Y": { days: 5 * 366, interval: "1wk" },
+  MAX: { days: 40 * 366, interval: "1mo" },
 };
 
 export async function fetchChart(
@@ -170,7 +184,13 @@ export async function fetchChart(
 
   let points: ChartPoint[] = (result.quotes ?? [])
     .filter((q) => q.close != null)
-    .map((q) => ({ t: new Date(q.date).getTime(), c: q.close as number }));
+    .map((q) => ({
+      t: new Date(q.date).getTime(),
+      c: q.close as number,
+      ...(q.open != null && q.high != null && q.low != null
+        ? { o: q.open, h: q.high, l: q.low }
+        : {}),
+    }));
 
   if (range === "1D" && points.length > 0) {
     // Keep only the most recent trading session. Sessions are ~6.5h and
@@ -252,6 +272,114 @@ export async function searchSymbols(query: string): Promise<SearchResult[]> {
       exchange: q.exchDisp ?? null,
       type: q.typeDisp ?? null,
     }));
+}
+
+export const INDEX_SYMBOLS: { symbol: string; label: string }[] = [
+  { symbol: "^GSPC", label: "S&P 500" },
+  { symbol: "^IXIC", label: "NASDAQ" },
+  { symbol: "^DJI", label: "DOW" },
+  { symbol: "^FTSE", label: "FTSE 100" },
+  { symbol: "^NSEI", label: "NIFTY 50" },
+];
+
+export async function fetchIndices(): Promise<IndexQuote[]> {
+  const settled = await Promise.allSettled(
+    INDEX_SYMBOLS.map(async ({ symbol, label }) => {
+      let q: YahooQuoteLike;
+      try {
+        q = (await yf.quote(symbol)) as YahooQuoteLike;
+      } catch (err) {
+        q = unwrapValidationError(err);
+      }
+      return {
+        symbol,
+        label,
+        value: q.regularMarketPrice ?? 0,
+        changePercent: q.regularMarketChangePercent ?? 0,
+      };
+    }),
+  );
+  return settled
+    .filter(
+      (r): r is PromiseFulfilledResult<IndexQuote> => r.status === "fulfilled",
+    )
+    .map((r) => r.value)
+    .filter((i) => i.value > 0);
+}
+
+interface YahooOptionsResult {
+  expirationDates?: Date[];
+  options?: {
+    expirationDate?: Date;
+    calls?: { strike?: number; lastPrice?: number; bid?: number; ask?: number }[];
+    puts?: { strike?: number; lastPrice?: number; bid?: number; ask?: number }[];
+  }[];
+}
+
+/** Near-term options chain (nearest expiration only, strikes around ATM). */
+export async function fetchOptions(
+  symbol: string,
+  spot: number,
+): Promise<{ expiration: string | null; calls: OptionContract[]; puts: OptionContract[] }> {
+  let result: YahooOptionsResult;
+  try {
+    result = (await yf.options(symbol, {})) as YahooOptionsResult;
+  } catch (err) {
+    result = unwrapValidationError(err);
+  }
+  const chain = result.options?.[0];
+  if (!chain) return { expiration: null, calls: [], puts: [] };
+
+  const trim = (
+    rows: { strike?: number; lastPrice?: number; bid?: number; ask?: number }[] = [],
+  ): OptionContract[] =>
+    rows
+      .filter((r) => r.strike != null)
+      .map((r) => ({
+        strike: r.strike as number,
+        last: r.lastPrice ?? null,
+        bid: r.bid ?? null,
+        ask: r.ask ?? null,
+      }))
+      .sort(
+        (a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot),
+      )
+      .slice(0, 12)
+      .sort((a, b) => a.strike - b.strike);
+
+  return {
+    expiration: chain.expirationDate
+      ? new Date(chain.expirationDate).toISOString().slice(0, 10)
+      : null,
+    calls: trim(chain.calls),
+    puts: trim(chain.puts),
+  };
+}
+
+interface YahooFinancialData {
+  financialData?: {
+    targetMeanPrice?: number;
+    recommendationKey?: string;
+    numberOfAnalystOpinions?: number;
+  };
+}
+
+/** Average analyst price target + consensus key (free via quoteSummary). */
+export async function fetchYahooRatings(
+  symbol: string,
+): Promise<{ targetMean: number | null; recommendation: string | null }> {
+  let qs: YahooFinancialData;
+  try {
+    qs = (await yf.quoteSummary(symbol, {
+      modules: ["financialData"],
+    })) as YahooFinancialData;
+  } catch (err) {
+    qs = unwrapValidationError(err);
+  }
+  return {
+    targetMean: qs.financialData?.targetMeanPrice ?? null,
+    recommendation: qs.financialData?.recommendationKey ?? null,
+  };
 }
 
 export async function fetchYahooNews(symbol: string): Promise<NewsItem[]> {

@@ -8,7 +8,7 @@ export default function HeaderControls() {
   const { email, pro, beginner, setBeginner } = useApp();
 
   return (
-    <span className="nav-right">
+    <span className="nav-controls">
       <button
         type="button"
         className="beginner-toggle"

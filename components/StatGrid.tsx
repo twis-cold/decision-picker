@@ -11,6 +11,7 @@ export default function StatGrid({ quote }: { quote: QuoteDetail }) {
   const stats: [string, string][] = [
     ["Market Cap", formatCompact(quote.marketCap)],
     ["P/E (TTM)", quote.trailingPE != null ? quote.trailingPE.toFixed(2) : "—"],
+    ["EPS (TTM)", quote.eps != null ? quote.eps.toFixed(2) : "—"],
     ["52W High", formatPrice(quote.fiftyTwoWeekHigh)],
     ["52W Low", formatPrice(quote.fiftyTwoWeekLow)],
     ["Volume", formatCompact(quote.volume)],
