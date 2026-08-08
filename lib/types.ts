@@ -150,3 +150,39 @@ export interface DigestResponse {
   text: string; // ready-to-send markdown body
   sampleData: boolean;
 }
+
+export interface QuotesResponse {
+  quotes: StockSummary[];
+  sampleData: boolean;
+}
+
+export type EarningsHour = "bmo" | "amc" | "other";
+
+export interface EarningsItem {
+  symbol: string;
+  date: string; // YYYY-MM-DD
+  hour: EarningsHour;
+  epsEstimate: number | null;
+}
+
+export interface EarningsResponse {
+  from: string;
+  to: string;
+  items: EarningsItem[];
+  needsKey: boolean; // true when no Finnhub key is configured (live mode)
+  sampleData: boolean;
+}
+
+export interface CompareSeries {
+  symbol: string;
+  points: ValuePoint[]; // $100 normalized
+  returnPercent: number;
+  endValue: number;
+}
+
+export interface CompareResponse {
+  from: string; // requested start (YYYY-MM-DD)
+  startDate: string; // ISO of the common first trading day actually used
+  series: CompareSeries[];
+  sampleData: boolean;
+}

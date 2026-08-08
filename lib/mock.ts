@@ -1,6 +1,7 @@
 import type {
   ChartPoint,
   ChartRange,
+  EarningsItem,
   NewsItem,
   QuoteDetail,
   SearchResult,
@@ -277,6 +278,41 @@ export function mockJumpNews(symbol: string, dateStr: string): NewsItem[] {
       publishedAt: new Date(base - i * 9 * 3600 * 1000).toISOString(),
     };
   });
+}
+
+/**
+ * Deterministic earnings calendar. Each universe ticker gets one canonical
+ * report slot on a weekday within the current two-week stretch — seeded by
+ * the week, NOT the query window — so "today" queries and full-window
+ * queries always agree with each other.
+ */
+export function mockEarnings(from: string, to: string): EarningsItem[] {
+  const fromMs = Date.parse(`${from}T00:00:00Z`);
+  const toMs = Date.parse(`${to}T00:00:00Z`);
+  const now = new Date();
+  // Monday of the current UTC week anchors the schedule.
+  const monday = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - ((now.getUTCDay() + 6) % 7),
+  );
+
+  const out: EarningsItem[] = [];
+  for (const u of UNIVERSE) {
+    const rng = mulberry32(hashString(u.symbol + ":earn:" + monday));
+    if (rng() > 0.6) continue; // not everyone reports this fortnight
+    const weekdayIndex = Math.floor(rng() * 10); // Mon–Fri, this week + next
+    const t =
+      monday + (weekdayIndex + Math.floor(weekdayIndex / 5) * 2) * DAY_MS;
+    if (t < fromMs || t > toMs) continue;
+    out.push({
+      symbol: u.symbol,
+      date: new Date(t).toISOString().slice(0, 10),
+      hour: rng() < 0.5 ? "bmo" : "amc",
+      epsEstimate: round2(rng() * 4 + 0.1),
+    });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function mockSearch(query: string): SearchResult[] {

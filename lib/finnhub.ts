@@ -1,4 +1,4 @@
-import type { NewsItem } from "./types";
+import type { EarningsItem, NewsItem } from "./types";
 
 const BASE = "https://finnhub.io/api/v1";
 
@@ -62,4 +62,39 @@ export async function fetchFinnhubNewsBetween(
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1).trimEnd() + "…";
+}
+
+interface FinnhubEarningsEntry {
+  date: string;
+  symbol: string;
+  hour: string; // "bmo" | "amc" | "dmh" | ""
+  epsEstimate: number | null;
+}
+
+/**
+ * Earnings calendar between two dates (Finnhub /calendar/earnings —
+ * included in the free tier, same key as company news).
+ */
+export async function fetchEarningsCalendar(
+  from: string,
+  to: string,
+): Promise<EarningsItem[]> {
+  const token = process.env.FINNHUB_API_KEY;
+  if (!token) throw new Error("FINNHUB_API_KEY not set");
+
+  const url = `${BASE}/calendar/earnings?from=${from}&to=${to}&token=${token}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Finnhub responded ${res.status}`);
+
+  const data = (await res.json()) as {
+    earningsCalendar?: FinnhubEarningsEntry[];
+  };
+  return (data.earningsCalendar ?? [])
+    .filter((e) => e.symbol && e.date)
+    .map((e) => ({
+      symbol: e.symbol,
+      date: e.date,
+      hour: e.hour === "bmo" ? "bmo" : e.hour === "amc" ? "amc" : "other",
+      epsEstimate: e.epsEstimate ?? null,
+    }));
 }

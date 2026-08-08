@@ -28,6 +28,21 @@ no charting library, no UI framework.
   the stock moved that day and why, reconstructed from headlines of the
   time, with an S&P 500 comparison. When no clear cause exists, it says so
   honestly instead of inventing one. Free tier: 3 lookups/day
+- **Watchlist** (`/watchlist`, free) — star any stock card or detail page to
+  save it; quick-view strip on the homepage; live prices in the same format
+  as the dashboard. Stored in localStorage (works signed-out); a TODO in
+  `components/AppProviders.tsx` marks the seam for account/DB persistence
+  once real auth lands
+- **Earnings calendar** (`/earnings`) — who reports this week and next,
+  before open or after close, with a "my companies only" watchlist filter.
+  Stocks reporting today get a small EARNINGS BMO/AMC badge on their cards
+  across the app. Uses Finnhub's `/calendar/earnings` (free tier, same
+  `FINNHUB_API_KEY` as news — no extra provider needed)
+- **Comparison view** (`/compare`) — $100 into 2–3 tickers on the same
+  start date, plotted on one normalized chart (1M/6M/1Y/5Y/custom ranges)
+  with a per-ticker return table. Reuses the hindsight history pipeline;
+  line colors are a colorblind-checked cyan/amber/violet trio, deliberately
+  distinct from the green/red gain/loss coding
 - **Ticker search** with keyboard navigation
 - Fully responsive, terminal-style dark UI
 
@@ -62,8 +77,8 @@ service when you add keys:
 
 | Source | Used for | Key needed |
 |---|---|---|
-| Yahoo Finance (unofficial, via [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2)) | Movers screeners, quotes, charts, history, search, fallback news | No |
-| [Finnhub](https://finnhub.io) (optional) | Company news for "why it's moving" + historical headlines for "Explain the Jump" | Free key |
+| Yahoo Finance (unofficial, via [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2)) | Movers screeners, quotes, charts, history (also feeds hindsight + compare), search, fallback news | No |
+| [Finnhub](https://finnhub.io) (optional) | Company news, historical headlines for "Explain the Jump", earnings calendar (`/calendar/earnings`) | Free key |
 
 Why this combination: Yahoo's unofficial API is the only free source with
 a **movers screener** (gainers/losers/actives) plus unlimited-ish quotes
@@ -97,7 +112,7 @@ All optional — see `.env.example` for full notes. Create `.env.local`:
 
 | Variable | Enables | Without it |
 |---|---|---|
-| `FINNHUB_API_KEY` | Richer news + historical headlines for jump lookups ([free key](https://finnhub.io/register)) | Yahoo news fallback; jump lookups >1wk old show "no headline archive" |
+| `FINNHUB_API_KEY` | Richer news, historical headlines for jump lookups, earnings calendar ([free key](https://finnhub.io/register)) | Yahoo news fallback; jump lookups >1wk old show "no headline archive"; earnings page explains it needs the key |
 | `AUTH_SECRET` | Proper cookie signing (`openssl rand -hex 32`) | Insecure dev default |
 | `STRIPE_SECRET_KEY` + `STRIPE_PRICE_ID` | Real Stripe Checkout (test mode fine) | Demo upgrade button |
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature verification | Webhook returns 501 |

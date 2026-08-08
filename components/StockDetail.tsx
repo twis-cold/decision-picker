@@ -11,9 +11,10 @@ import PriceChart from "./PriceChart";
 import PriceTicker from "./PriceTicker";
 import StatGrid from "./StatGrid";
 import { usePoll } from "./usePoll";
+import WatchStar from "./WatchStar";
 
 export default function StockDetail({ symbol }: { symbol: string }) {
-  const { pro } = useApp();
+  const { pro, earningsToday } = useApp();
   const { data: quote, error, loading, reload } = usePoll<QuoteDetail>(
     `/api/quote/${encodeURIComponent(symbol)}`,
     pro ? 30_000 : 60_000,
@@ -83,8 +84,19 @@ export default function StockDetail({ symbol }: { symbol: string }) {
         <div>
           <h1 className="detail-symbol">
             {quote.symbol}
+            <WatchStar symbol={quote.symbol} size={18} />
             {quote.exchange && (
               <span className="detail-exchange">{quote.exchange}</span>
+            )}
+            {earningsToday[quote.symbol] && (
+              <span className="earnings-chip">
+                EARNINGS{" "}
+                {earningsToday[quote.symbol] === "bmo"
+                  ? "BMO"
+                  : earningsToday[quote.symbol] === "amc"
+                    ? "AMC"
+                    : "TODAY"}
+              </span>
             )}
             {quote.sampleData && (
               <span className="badge-sample" style={{ marginLeft: 10 }}>

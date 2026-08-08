@@ -44,8 +44,11 @@ export default function RootLayout({
           <nav className="site-nav" aria-label="Main">
             <div className="container">
               <Link href="/">MOVERS</Link>
+              <Link href="/watchlist">WATCHLIST</Link>
+              <Link href="/earnings">EARNINGS</Link>
+              <Link href="/compare">COMPARE</Link>
               <Link href="/hindsight">HINDSIGHT</Link>
-              <Link href="/jump">EXPLAIN A JUMP</Link>
+              <Link href="/jump">JUMP</Link>
               <Link href="/pro">PRO</Link>
               <HeaderControls />
             </div>

@@ -6,6 +6,7 @@ import AdSlot from "./AdSlot";
 import { useApp } from "./AppProviders";
 import StockCard from "./StockCard";
 import { usePoll } from "./usePoll";
+import WatchlistStrip from "./WatchlistStrip";
 
 function Section({
   title,
@@ -89,6 +90,7 @@ export default function Dashboard() {
   return (
     <div className="dash-layout">
       <div>
+        <WatchlistStrip />
         <div className="dash-meta">
           <h1 className="dash-title">MARKET MOVERS</h1>
           <span className="updated">

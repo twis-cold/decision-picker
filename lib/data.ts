@@ -1,9 +1,15 @@
 import { cached } from "./cache";
 import { explainJump, explainMove } from "./explain";
-import { fetchFinnhubNews, fetchFinnhubNewsBetween, finnhubEnabled } from "./finnhub";
+import {
+  fetchEarningsCalendar,
+  fetchFinnhubNews,
+  fetchFinnhubNewsBetween,
+  finnhubEnabled,
+} from "./finnhub";
 import {
   mockChart,
   mockDailyHistory,
+  mockEarnings,
   mockJumpNews,
   mockMovers,
   mockNews,
@@ -14,13 +20,17 @@ import type {
   ChartPoint,
   ChartRange,
   ChartResponse,
+  CompareResponse,
+  CompareSeries,
   DigestResponse,
+  EarningsResponse,
   HindsightResponse,
   JumpResponse,
   MoversResponse,
   NewsItem,
   NewsResponse,
   QuoteDetail,
+  QuotesResponse,
   SearchResponse,
   SparkResponse,
   ValuePoint,
@@ -47,6 +57,7 @@ const TTL = {
   history: 10 * 60 * 1000,
   jump: 60 * 60 * 1000,
   digest: 10 * 60 * 1000,
+  earnings: 6 * 60 * 60 * 1000,
 };
 
 const useMock = () => process.env.MOCK_DATA === "1";
@@ -55,7 +66,9 @@ const SYMBOL_RE = /^[A-Z0-9.^=-]{1,12}$/;
 
 export function normalizeSymbol(raw: string): string {
   const symbol = decodeURIComponent(raw).trim().toUpperCase();
-  if (!SYMBOL_RE.test(symbol)) throw new Error(`Invalid symbol: ${raw}`);
+  if (!SYMBOL_RE.test(symbol)) {
+    throw new UserError(`"${raw}" doesn't look like a valid ticker.`);
+  }
   return symbol;
 }
 
@@ -427,6 +440,117 @@ export async function getDigest(): Promise<DigestResponse> {
 
     return { date, subject, items, text, sampleData: movers.sampleData };
   });
+}
+
+/** Batch quotes for the watchlist page/widget. Bad symbols and failures are skipped. */
+export async function getQuotes(symbols: string[]): Promise<QuotesResponse> {
+  const normalized = symbols.flatMap((s) => {
+    try {
+      return [normalizeSymbol(s)];
+    } catch {
+      return [];
+    }
+  });
+  const unique = [...new Set(normalized)].slice(0, 30);
+  const settled = await Promise.allSettled(unique.map((s) => getQuote(s)));
+  const quotes = settled
+    .filter(
+      (r): r is PromiseFulfilledResult<QuoteDetail> => r.status === "fulfilled",
+    )
+    .map((r) => r.value);
+  return { quotes, sampleData: useMock() };
+}
+
+/**
+ * Earnings calendar. Live data needs FINNHUB_API_KEY (the calendar is part
+ * of Finnhub's free tier — no second provider required); without it we
+ * return needsKey so the UI can explain, rather than showing nothing.
+ */
+export async function getEarnings(
+  from: string,
+  to: string,
+): Promise<EarningsResponse> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    throw new UserError("Invalid date range.");
+  }
+  if (useMock()) {
+    return { from, to, items: mockEarnings(from, to), needsKey: false, sampleData: true };
+  }
+  if (!finnhubEnabled()) {
+    return { from, to, items: [], needsKey: true, sampleData: false };
+  }
+  return cached(`earnings:${from}:${to}`, TTL.earnings, async () => {
+    const items = (await fetchEarningsCalendar(from, to)).sort(
+      (a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol),
+    );
+    return { from, to, items, needsKey: false, sampleData: false };
+  });
+}
+
+/**
+ * Comparison view: $100 in each symbol on the same start date. Reuses the
+ * hindsight pipeline's getDailyHistory; series are aligned to the latest
+ * common first trading day so late-IPO symbols don't skew the comparison.
+ */
+export async function getCompare(
+  symbols: string[],
+  fromStr: string,
+): Promise<CompareResponse> {
+  const unique = [...new Set(symbols.map((s) => normalizeSymbol(s)))].slice(0, 3);
+  if (unique.length < 2) {
+    throw new UserError("Pick at least two tickers to compare.");
+  }
+  const fromMs = parseDateParam(fromStr);
+
+  const histories = await Promise.all(
+    unique.map(async (symbol) => {
+      const points = await getDailyHistory(symbol, fromMs - 7 * DAY_MS);
+      if (points.length === 0) {
+        throw new UserError(
+          `No price history found for ${symbol} — it may be delisted or the ticker may be wrong.`,
+        );
+      }
+      return { symbol, points };
+    }),
+  );
+
+  // Latest first-available day across the set, but never before `from`.
+  const commonStart = Math.max(
+    fromMs,
+    ...histories.map((h) => h.points[0].t),
+  );
+
+  const series: CompareSeries[] = histories.map(({ symbol, points }) => {
+    const startIdx = points.findIndex((p) => p.t >= commonStart);
+    if (startIdx === -1) {
+      throw new UserError(`${symbol} has no trading data after ${fromStr}.`);
+    }
+    const base = points[startIdx].c;
+    let values: ValuePoint[] = points
+      .slice(startIdx)
+      .map((p) => ({ t: p.t, v: (100 * p.c) / base }));
+    if (values.length > 400) {
+      const step = Math.ceil(values.length / 400);
+      const last = values[values.length - 1];
+      values = values.filter((_, i) => i % step === 0);
+      if (values[values.length - 1].t !== last.t) values.push(last);
+    }
+    const end = values[values.length - 1].v;
+    return {
+      symbol,
+      points: values,
+      endValue: end,
+      returnPercent: end - 100,
+    };
+  });
+
+  const actualStart = Math.min(...series.map((s) => s.points[0].t));
+  return {
+    from: fromStr,
+    startDate: new Date(actualStart).toISOString(),
+    series,
+    sampleData: useMock(),
+  };
 }
 
 export async function getSearch(query: string): Promise<SearchResponse> {

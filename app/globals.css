@@ -1024,6 +1024,288 @@ button {
   margin-top: 2px;
 }
 
+/* ---------- watchlist ---------- */
+
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-row .card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* In tight columns (three lists + ad rail, small phones) shrink the
+   sparkline and number block so the company name keeps readable width. */
+.card {
+  container-type: inline-size;
+}
+
+@container (max-width: 400px) {
+  .card-main {
+    gap: 12px;
+  }
+
+  .card-main svg {
+    width: 80px;
+  }
+
+  .card-nums {
+    min-width: 90px;
+  }
+
+  .price {
+    font-size: 13.5px;
+  }
+}
+
+.watch-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  color: var(--ink-3);
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: color 0.12s;
+}
+
+.watch-star:hover {
+  color: var(--ink);
+}
+
+.watch-star.watched {
+  color: var(--ink-2);
+}
+
+.detail-symbol .watch-star {
+  vertical-align: 2px;
+  margin-left: 6px;
+}
+
+.watch-strip {
+  margin-bottom: 6px;
+}
+
+.strip-link {
+  margin-left: auto;
+  font: 600 10px var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--ink-3);
+  text-decoration: none;
+}
+
+.strip-link:hover {
+  color: var(--ink-2);
+}
+
+.strip-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+
+.strip-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 0.12s;
+}
+
+.strip-item:hover {
+  border-color: #34343c;
+}
+
+.strip-item .price {
+  font-size: 13px;
+}
+
+.strip-item .chip {
+  display: inline;
+  font-size: 11px;
+}
+
+/* ---------- earnings ---------- */
+
+.earnings-chip {
+  font: 600 8.5px var(--mono);
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
+  border: 1px solid #34343c;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 8px;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+
+.earnings-filter {
+  margin-bottom: 20px;
+}
+
+.earnings-day .section-title.today {
+  color: var(--ink);
+}
+
+.today-chip {
+  font: 700 8.5px var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--up-bright);
+  border: 1px solid rgba(0, 255, 136, 0.4);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.earnings-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+  transition: background 0.12s;
+}
+
+.earnings-row:hover {
+  background: var(--bg-hover);
+}
+
+.earnings-row .ticker {
+  min-width: 64px;
+  font-size: 14px;
+}
+
+.hour-chip {
+  font: 600 9.5px var(--mono);
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 7px;
+  min-width: 96px;
+  text-align: center;
+}
+
+.hour-chip.bmo {
+  color: var(--ink-2);
+}
+
+.hour-chip.amc {
+  color: var(--ink-2);
+}
+
+.earnings-row .eps {
+  font: 400 11.5px var(--mono);
+  color: var(--ink-3);
+  flex: 1;
+}
+
+.watch-flag {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+/* ---------- compare ---------- */
+
+.compare-page {
+  max-width: 860px;
+}
+
+.compare-page .tool-form input {
+  width: 130px;
+}
+
+.custom-date {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink);
+  font: 500 11.5px var(--mono);
+  padding: 4px 8px;
+  margin-left: 8px;
+  outline: none;
+}
+
+.legend-row {
+  display: flex;
+  gap: 20px;
+  margin: 14px 0 4px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 600 12px var(--mono);
+  color: var(--ink-2);
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.legend-item .legend-swatch {
+  margin-right: 0;
+}
+
+.tt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tt-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  font: 500 13px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-table th {
+  font: 600 10px var(--mono);
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  text-align: left;
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.compare-table td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.compare-table td.up {
+  color: var(--up);
+}
+
+.compare-table td.down {
+  color: var(--down);
+}
+
 /* ---------- loading / error ---------- */
 
 .skeleton {
